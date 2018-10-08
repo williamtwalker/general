@@ -1,0 +1,98 @@
+---
+title: "Factors Influencing Exam Performance for California Schools"
+author: "William Walker"
+date: "May 9, 2018"
+output: html_document
+---
+
+The following code was used to to examine is the factors influecing total exam score for schools in California. The variables of interest were student-to-teacher ratio and computers per student. 
+
+```{r}
+options(scipen = 999)
+
+library(SDSRegressionR)
+
+#import data...
+school <- read.csv("data/Caschool.csv", stringsAsFactors=FALSE)
+names(school)
+#View(school)
+school$totalscore <- school$mathscr + school$readscr
+school$computers20 <- school$compstu * 20
+school$expnstuscale <- school$expnstu / 100
+school$enrltotscale <- school$enrltot / 100
+
+# Variable Statistics
+vars <- c("totalscore", "elpct", "expnstuscale", "enrltotscale", "str", "computers20")   # first variable of interest should be repsonse variable
+sapply(school[,vars], mean)
+sapply(school[,vars], sd)
+
+# Correlation Matrix
+library(psych)
+corr.test(school[,vars])$r
+
+#Determine and run the final model
+full <- lm(totalscore ~ elpct + expnstuscale + enrltotscale + str + computers20, data=school)
+
+#Look for any issues:
+library(car)
+summary(full)
+vif(full)
+residFitted(full)
+cooksPlot(full, key.variable = "ID", print.obs = TRUE, sort.obs=TRUE, save.cutoff = TRUE)
+threeOuts(full, key.variable = "ID")
+
+#Clean up
+"%not in%" <- Negate("%in%")
+good_school <- school[school$ID %not in% c("49"),] #You should complete this part...
+
+#Re-run the final model
+fullg <- lm(totalscore ~ elpct + expnstu + enrltot + str + computers20, data=good_school)
+
+#Tag observations in the final model
+good_school$in_fullg <- tagObs(fullg)
+table(good_school$in_fullg)
+
+#Keep just those in the model
+#good_school_fullg <- good_school[which(good_school$in_fullg == 1), ]
+#sum(good_school_fullg$in_fullg) 
+#Don't need to run this since initial and final model have the same number of obs.
+
+#Now for the Sequential Regression:
+#Model 1:
+m1_seq <- lm(totalscore ~ expnstuscale + elpct + enrltotscale, data=good_school)
+summary(m1_seq)
+summary(m1_seq)$r.squared
+lmBeta(m1_seq)
+pCorr(m1_seq)
+confint(m1_seq)
+
+#Model 2:
+m2_seq <- lm(totalscore ~ expnstuscale + elpct + enrltotscale + str + computers20, data=good_school)
+summary(m2_seq)
+summary(m2_seq)$r.squared
+lmBeta(m2_seq)
+pCorr(m2_seq)
+confint(m2_seq)
+
+#Now the Sequential Results
+anova(m1_seq, m2_seq)
+summary(m2_seq)$r.squared - summary(m1_seq)$r.squared
+              
+good_school %>% ggplot() + geom_point(mapping = aes(x=elpct, y=totalscore)) + geom_smooth(aes(y=totalscore, x=elpct), method = lm, formula = y ~ x, se=TRUE)
+
+# Manipulate this code
+library(psych)
+library(lsmeans)
+describe(good_school$elpct)
+hist(good_school$elpct)
+pgr <- summary(lsmeans(m2_seq, "elpct", at=list(elpct=seq(0, 90, 3))))
+
+schoolPlot <- simpleScatter(good_school, elpct, totalscore,
+                            title="CA School", 
+                            xlab="English Learner Percentage", ylab="Total Score")
+
+schoolPlot + 
+  geom_line(data=pgr, aes(x=elpct, y=lsmean), color="red") +
+  geom_ribbon(data=pgr, aes(x=elpct, y=lsmean, ymin=lower.CL, ymax=upper.CL), alpha=0.3)
+
+```
